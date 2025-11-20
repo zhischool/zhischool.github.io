@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>網頁版 OMR 答案卡辨識系統</title>
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <style>
+        :root {
+            --primary-color: #2196F3;
+            --bg-color: #f5f5f5;
+        }
+        body {
+            font-family: "Microsoft JhengHei", sans-serif;
+            margin: 0;
+            padding: 0;
+            background: var(--bg-color);
+        }
+
+        /* --- 導航列 --- */
+        .nav {
+            background: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-around;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .nav button {
+            border: none;
+            background: none;
+            font-size: 16px;
+            font-weight: bold;
+            color: #666;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+        .nav button.active {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+        }
+
+        /* --- 頁面容器 --- */
+        .page {
+            display: none;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .page.active {
+            display: block;
+        }
+
+        /* --- 答案卡樣式 (列印用) --- */
+        .sheet-container {
+            background: white;
+            padding: 40px;
+            border: 1px solid #ccc;
+            width: 100%;
+            box-sizing: border-box;
+            position: relative;
+        }
+        
+        /* 定位點 (Fiducial Markers) - 雖然此範例使用固定框，但保留定位點是好習慣 */
+        .marker {
+            width: 20px;
+            height: 20px;
+            background: black;
+            position: absolute;
+        }
+        .m-tl { top: 20px; left: 20px; }
+        .m-tr { top: 20px; right: 20px; }
+        .m-bl { bottom: 20px; left: 20px; }
+        .m-br { bottom: 20px; right: 20px; }
+
+        .question-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .q-num {
+            width: 30px;
+            font-weight: bold;
+        }
+        .bubbles {
+            display: flex;
+            gap: 15px;
+        }
+        .bubble {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* --- 掃描介面樣式 --- */
+        .scanner-container {
+            position: relative;
+            width: 100%;
+            max-width: 480px;
+            margin: 0 auto;
+            overflow: hidden;
+            background: black;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        /* 視覺導引框 (Overlay) */
+        .overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 60%; /* 調整這個比例以符合答案卡長寬比 */
+            border: 2px solid rgba(0, 255, 0, 0.8);
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            z-index: 10;
+        }
+        .scan-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            font-size: 18px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        #status {
+            text-align: center;
+            margin: 10px 0;
+            color: red;
+            font-weight: bold;
+        }
+        #result-display {
+            margin-top: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        /* --- 列印設定 --- */
+        @media print {
+            .nav, .page:not(#page-create), button, .scanner-container, #status {
+                display: none !important;
+            }
+            #page-create {
+                display: block !important;
+                padding: 0;
+                margin: 0;
+            }
+            .sheet-container {
+                border: none;
+                padding: 0;
+            }
+            body {
+                background: white;
+            }
+        }
+        
+        /* 隱藏 Canvas 用於處理圖像 */
+        #process-canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="nav">
+        <button onclick="switchTab('create')" class="active" id="btn-create">1. 建立答案卡</button>
+        <button onclick="switchTab('scan')" id="btn-scan">2. 掃描辨識</button>
+    </div>
+
+    <div id="page-create" class="page active">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <button class="scan-btn" style="width: auto; display: inline-block;" onclick="window.print()">列印此答案卡</button>
+            <p style="font-size: 12px; color: #666;">請列印此卡片，並用深色筆將圓圈塗滿。</p>
+        </div>
+
+        <div class="sheet-container" id="sheet">
+            <div class="marker m-tl"></div>
+            <div class="marker m-tr"></div>
+            <div class="marker m-bl"></div>
+            <div class="marker m-br"></div>
+
+            <h2 style="text-align: center;">OMR 測試答案卡</h2>
+            <div style="height: 20px;"></div>
+
+            <div id="questions-area"></div>
+        </div>
+    </div>
+
+    <div id="page-scan" class="page">
+        <div id="status">正在載入 OpenCV...</div>
+        
+        <div class="scanner-container">
+            <video id="video" playsinline autoplay muted></video>
+            <div class="overlay"></div>
+        </div>
+
+        <button class="scan-btn" id="capture-btn" onclick="processFrame()" disabled>拍照並分析</button>
+
+        <div id="result-display">
+            <h3>分析結果：</h3>
+            <div id="results-list">等待掃描...</div>
+        </div>
+        
+        <canvas id="process-canvas"></canvas>
+    </div>
+
+    <script>
+        // --- 設定變數 ---
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('process-canvas');
+        let ctx = canvas.getContext('2d');
+        let stream = null;
+        let cvLoaded = false;
+
+        // 題目數量與選項
+        const QUESTION_COUNT = 5;
+        const OPTIONS = ['A', 'B', 'C', 'D'];
+
+        // --- 初始化：產生答案卡 ---
+        function initSheet() {
+            const area = document.getElementById('questions-area');
+            let html = '';
+            for (let i = 1; i <= QUESTION_COUNT; i++) {
+                html += `<div class="question-row">
+                    <div class="q-num">${i}.</div>
+                    <div class="bubbles">`;
+                OPTIONS.forEach(opt => {
+                    html += `<div class="bubble">${opt}</div>`;
+                });
+                html += `</div></div>`;
+            }
+            area.innerHTML = html;
+        }
+        initSheet();
+
+        // --- 頁面切換邏輯 ---
+        function switchTab(tab) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+            
+            document.getElementById(`page-${tab}`).classList.add('active');
+            document.getElementById(`btn-${tab}`).classList.add('active');
+
+            if (tab === 'scan') {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+
+        // --- OpenCV 載入狀態 ---
+        function onOpenCvReady() {
+            cvLoaded = true;
+            document.getElementById('status').innerText = "系統就緒，請對準綠框";
+            document.getElementById('status').style.color = "green";
+            document.getElementById('capture-btn').disabled = false;
+        }
+
+        // --- 攝影機控制 ---
+        async function startCamera() {
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: 'environment', // 優先使用後鏡頭
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+            } catch (err) {
+                alert("無法存取相機：" + err.name);
+                console.error(err);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        }
+
+        // --- 核心：OMR 圖像處理邏輯 ---
+        function processFrame() {
+            if (!cvLoaded) return;
+
+            // 1. 將 Video 當前幀畫到 Canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 2. OpenCV 處理
+            let src = cv.imread(canvas);
+            let gray = new cv.Mat();
+            let thresh = new cv.Mat();
+
+            // 轉灰階
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            
+            // 二值化 (Adaptive Threshold 對光線不均比較有效，或者是 Otsu)
+            // 這裡使用簡單的二值化，假設紙張是白的，畫記是黑的
+            // 注意：因為我們只分析 ROI (綠框區域)，所以我們先截取該區域
+            
+            // 定義綠框在實際影像中的座標 (ROI - Region of Interest)
+            // 這邊簡化邏輯：假設使用者完美地將答案區域對準了綠框
+            // 綠框 CSS 是 top 50%, left 50%, width 80%, height 60%
+            
+            let boxW = src.cols * 0.8;
+            let boxH = src.rows * 0.6;
+            let boxX = (src.cols - boxW) / 2;
+            let boxY = (src.rows - boxH) / 2;
+
+            let rect = new cv.Rect(boxX, boxY, boxW, boxH);
+            let roi = gray.roi(rect); // 裁剪出綠框區域
+
+            // 對 ROI 進行二值化與反轉 (變成黑底白字，劃記處為白色)
+            // 使用 THRESH_BINARY_INV: 深色筆跡變成 255 (白)，白紙變成 0 (黑)
+            cv.threshold(roi, thresh, 100, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+            // 3. 網格切割與計分
+            // 這是「貧民版」OMR，假設紙張完全平整且對齊
+            // 我們將 ROI 垂直切成 5 等份 (題目)，水平切成 4 等份 (選項)
+            // 在實際應用中，這裡應該要用 findContours 找圓圈，但在 Web 前端這最快
+            
+            let rowH = roi.rows / QUESTION_COUNT;
+            let colW = roi.cols / OPTIONS.length; // 假設只有選項區域，忽略了題號區
+
+            // 修正：我們的綠框其實包含了題號，所以要稍微位移起始點
+            // 假設題號佔了左邊 20%
+            let startX = roi.cols * 0.2; 
+            let optionW = (roi.cols * 0.8) / OPTIONS.length;
+
+            let results = [];
+
+            for (let q = 0; q < QUESTION_COUNT; q++) {
+                let bestOpt = -1;
+                let maxPixels = 0;
+
+                for (let opt = 0; opt < OPTIONS.length; opt++) {
+                    // 定義每個選項的檢查框 (稍微內縮避免邊框干擾)
+                    let cellX = startX + opt * optionW;
+                    let cellY = q * rowH;
+                    
+                    // 內縮 20% 
+                    let checkRect = new cv.Rect(
+                        cellX + optionW * 0.2, 
+                        cellY + rowH * 0.2, 
+                        optionW * 0.6, 
+                        rowH * 0.6
+                    );
+
+                    // 計算該區域的非零像素 (白色像素) 數量
+                    let cellRoi = thresh.roi(checkRect);
+                    let count = cv.countNonZero(cellRoi);
+                    cellRoi.delete();
+
+                    // 判斷是否被選取 (簡單的閾值：如果白色像素夠多)
+                    if (count > maxPixels) {
+                        maxPixels = count;
+                        // 設定一個最低門檻，避免雜訊
+                        if (count > (checkRect.width * checkRect.height * 0.2)) {
+                            bestOpt = opt;
+                        }
+                    }
+                }
+                results.push(bestOpt === -1 ? "?" : OPTIONS[bestOpt]);
+            }
+
+            // 4. 顯示結果
+            displayResults(results);
+
+            // 清理記憶體
+            src.delete(); gray.delete(); thresh.delete(); roi.delete();
+        }
+
+        function displayResults(answers) {
+            let html = '<table border="1" style="width:100%; border-collapse:collapse; text-align:center;">';
+            html += '<tr><th>題號</th><th>偵測答案</th></tr>';
+            answers.forEach((ans, idx) => {
+                html += `<tr><td>${idx + 1}</td><td style="font-weight:bold; color:${ans==='?'?'red':'green'}">${ans}</td></tr>`;
+            });
+            html += '</table>';
+            document.getElementById('results-list').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
