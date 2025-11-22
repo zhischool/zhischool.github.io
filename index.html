@@ -2,402 +2,293 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>網頁版 OMR 答案卡辨識系統</title>
-    <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartOMR - 數學科 Mobile Demo</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root {
-            --primary-color: #2196F3;
-            --bg-color: #f5f5f5;
-        }
-        body {
-            font-family: "Microsoft JhengHei", sans-serif;
-            margin: 0;
-            padding: 0;
-            background: var(--bg-color);
-        }
-
-        /* --- 導航列 --- */
-        .nav {
-            background: white;
-            padding: 15px;
-            display: flex;
-            justify-content: space-around;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .nav button {
-            border: none;
-            background: none;
-            font-size: 16px;
-            font-weight: bold;
-            color: #666;
-            padding: 10px 20px;
-            cursor: pointer;
-        }
-        .nav button.active {
-            color: var(--primary-color);
-            border-bottom: 2px solid var(--primary-color);
-        }
-
-        /* --- 頁面容器 --- */
-        .page {
-            display: none;
-            padding: 20px;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        .page.active {
-            display: block;
-        }
-
-        /* --- 答案卡樣式 (列印用) --- */
-        .sheet-container {
-            background: white;
-            padding: 40px;
-            border: 1px solid #ccc;
-            width: 100%;
-            box-sizing: border-box;
-            position: relative;
-        }
-        
-        /* 定位點 (Fiducial Markers) - 雖然此範例使用固定框，但保留定位點是好習慣 */
-        .marker {
-            width: 20px;
-            height: 20px;
-            background: black;
-            position: absolute;
-        }
-        .m-tl { top: 20px; left: 20px; }
-        .m-tr { top: 20px; right: 20px; }
-        .m-bl { bottom: 20px; left: 20px; }
-        .m-br { bottom: 20px; right: 20px; }
-
-        .question-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 5px;
-        }
-        .q-num {
-            width: 30px;
-            font-weight: bold;
-        }
-        .bubbles {
-            display: flex;
-            gap: 15px;
-        }
-        .bubble {
-            width: 25px;
-            height: 25px;
-            border-radius: 50%;
-            border: 2px solid #333;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            color: #666;
-        }
-
-        /* --- 掃描介面樣式 --- */
-        .scanner-container {
-            position: relative;
-            width: 100%;
-            max-width: 480px;
-            margin: 0 auto;
-            overflow: hidden;
-            background: black;
-        }
-        video {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        /* 視覺導引框 (Overlay) */
-        .overlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%;
-            height: 60%; /* 調整這個比例以符合答案卡長寬比 */
-            border: 2px solid rgba(0, 255, 0, 0.8);
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #000; color: white; }
+        .camera-overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            margin: 20px;
+            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.7); /* Focus area */
             pointer-events: none;
-            z-index: 10;
         }
-        .scan-btn {
-            display: block;
-            width: 100%;
-            padding: 15px;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            font-size: 18px;
-            margin-top: 10px;
-            border-radius: 5px;
+        .corner {
+            position: absolute; width: 20px; height: 20px; border-color: #00ff00; border-style: solid;
         }
-        #status {
-            text-align: center;
-            margin: 10px 0;
-            color: red;
-            font-weight: bold;
-        }
-        #result-display {
-            margin-top: 20px;
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-        }
-
-        /* --- 列印設定 --- */
-        @media print {
-            .nav, .page:not(#page-create), button, .scanner-container, #status {
-                display: none !important;
-            }
-            #page-create {
-                display: block !important;
-                padding: 0;
-                margin: 0;
-            }
-            .sheet-container {
-                border: none;
-                padding: 0;
-            }
-            body {
-                background: white;
-            }
-        }
+        .tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; }
+        .tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; }
+        .bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; }
+        .br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; }
         
-        /* 隱藏 Canvas 用於處理圖像 */
-        #process-canvas {
-            display: none;
+        .scan-beam {
+            position: absolute; left: 0; right: 0; height: 2px; background: #00ff00;
+            box-shadow: 0 0 10px #00ff00; opacity: 0;
         }
+        @keyframes beam { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 0; } }
+        .processing .scan-beam { animation: beam 1.5s linear infinite; }
     </style>
 </head>
 <body>
+    <div id="root"></div>
 
-    <div class="nav">
-        <button onclick="switchTab('create')" class="active" id="btn-create">1. 建立答案卡</button>
-        <button onclick="switchTab('scan')" id="btn-scan">2. 掃描辨識</button>
-    </div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-    <div id="page-create" class="page active">
-        <div style="text-align: center; margin-bottom: 20px;">
-            <button class="scan-btn" style="width: auto; display: inline-block;" onclick="window.print()">列印此答案卡</button>
-            <p style="font-size: 12px; color: #666;">請列印此卡片，並用深色筆將圓圈塗滿。</p>
-        </div>
+        // Icons
+        const CameraIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>;
+        const Check = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>;
+        const XIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>;
+        const Edit = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>;
 
-        <div class="sheet-container" id="sheet">
-            <div class="marker m-tl"></div>
-            <div class="marker m-tr"></div>
-            <div class="marker m-bl"></div>
-            <div class="marker m-br"></div>
+        const EXAM_CONFIG = [
+            { id: "A", points: 6, correct: ["-", "5"], label: "第 A 題" },
+            { id: "B", points: 6, correct: ["±", "1", "0"], label: "第 B 題" },
+            { id: "C", points: 6, correct: ["2", "3"], label: "第 C 題" }
+        ];
 
-            <h2 style="text-align: center;">OMR 測試答案卡</h2>
-            <div style="height: 20px;"></div>
+        const App = () => {
+            const videoRef = useRef(null);
+            const canvasRef = useRef(null);
+            const [mode, setMode] = useState('camera'); // 'camera', 'processing', 'result'
+            const [capturedImage, setCapturedImage] = useState(null);
+            const [logs, setLogs] = useState([]);
+            const [results, setResults] = useState({});
+            const [editingId, setEditingId] = useState(null);
 
-            <div id="questions-area"></div>
-        </div>
-    </div>
-
-    <div id="page-scan" class="page">
-        <div id="status">正在載入 OpenCV...</div>
-        
-        <div class="scanner-container">
-            <video id="video" playsinline autoplay muted></video>
-            <div class="overlay"></div>
-        </div>
-
-        <button class="scan-btn" id="capture-btn" onclick="processFrame()" disabled>拍照並分析</button>
-
-        <div id="result-display">
-            <h3>分析結果：</h3>
-            <div id="results-list">等待掃描...</div>
-        </div>
-        
-        <canvas id="process-canvas"></canvas>
-    </div>
-
-    <script>
-        // --- 設定變數 ---
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('process-canvas');
-        let ctx = canvas.getContext('2d');
-        let stream = null;
-        let cvLoaded = false;
-
-        // 題目數量與選項
-        const QUESTION_COUNT = 5;
-        const OPTIONS = ['A', 'B', 'C', 'D'];
-
-        // --- 初始化：產生答案卡 ---
-        function initSheet() {
-            const area = document.getElementById('questions-area');
-            let html = '';
-            for (let i = 1; i <= QUESTION_COUNT; i++) {
-                html += `<div class="question-row">
-                    <div class="q-num">${i}.</div>
-                    <div class="bubbles">`;
-                OPTIONS.forEach(opt => {
-                    html += `<div class="bubble">${opt}</div>`;
-                });
-                html += `</div></div>`;
-            }
-            area.innerHTML = html;
-        }
-        initSheet();
-
-        // --- 頁面切換邏輯 ---
-        function switchTab(tab) {
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-            
-            document.getElementById(`page-${tab}`).classList.add('active');
-            document.getElementById(`btn-${tab}`).classList.add('active');
-
-            if (tab === 'scan') {
-                startCamera();
-            } else {
-                stopCamera();
-            }
-        }
-
-        // --- OpenCV 載入狀態 ---
-        function onOpenCvReady() {
-            cvLoaded = true;
-            document.getElementById('status').innerText = "系統就緒，請對準綠框";
-            document.getElementById('status').style.color = "green";
-            document.getElementById('capture-btn').disabled = false;
-        }
-
-        // --- 攝影機控制 ---
-        async function startCamera() {
-            try {
-                const constraints = {
-                    video: {
-                        facingMode: 'environment', // 優先使用後鏡頭
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                };
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-            } catch (err) {
-                alert("無法存取相機：" + err.name);
-                console.error(err);
-            }
-        }
-
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-        }
-
-        // --- 核心：OMR 圖像處理邏輯 ---
-        function processFrame() {
-            if (!cvLoaded) return;
-
-            // 1. 將 Video 當前幀畫到 Canvas
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            // 2. OpenCV 處理
-            let src = cv.imread(canvas);
-            let gray = new cv.Mat();
-            let thresh = new cv.Mat();
-
-            // 轉灰階
-            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-            
-            // 二值化 (Adaptive Threshold 對光線不均比較有效，或者是 Otsu)
-            // 這裡使用簡單的二值化，假設紙張是白的，畫記是黑的
-            // 注意：因為我們只分析 ROI (綠框區域)，所以我們先截取該區域
-            
-            // 定義綠框在實際影像中的座標 (ROI - Region of Interest)
-            // 這邊簡化邏輯：假設使用者完美地將答案區域對準了綠框
-            // 綠框 CSS 是 top 50%, left 50%, width 80%, height 60%
-            
-            let boxW = src.cols * 0.8;
-            let boxH = src.rows * 0.6;
-            let boxX = (src.cols - boxW) / 2;
-            let boxY = (src.rows - boxH) / 2;
-
-            let rect = new cv.Rect(boxX, boxY, boxW, boxH);
-            let roi = gray.roi(rect); // 裁剪出綠框區域
-
-            // 對 ROI 進行二值化與反轉 (變成黑底白字，劃記處為白色)
-            // 使用 THRESH_BINARY_INV: 深色筆跡變成 255 (白)，白紙變成 0 (黑)
-            cv.threshold(roi, thresh, 100, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
-
-            // 3. 網格切割與計分
-            // 這是「貧民版」OMR，假設紙張完全平整且對齊
-            // 我們將 ROI 垂直切成 5 等份 (題目)，水平切成 4 等份 (選項)
-            // 在實際應用中，這裡應該要用 findContours 找圓圈，但在 Web 前端這最快
-            
-            let rowH = roi.rows / QUESTION_COUNT;
-            let colW = roi.cols / OPTIONS.length; // 假設只有選項區域，忽略了題號區
-
-            // 修正：我們的綠框其實包含了題號，所以要稍微位移起始點
-            // 假設題號佔了左邊 20%
-            let startX = roi.cols * 0.2; 
-            let optionW = (roi.cols * 0.8) / OPTIONS.length;
-
-            let results = [];
-
-            for (let q = 0; q < QUESTION_COUNT; q++) {
-                let bestOpt = -1;
-                let maxPixels = 0;
-
-                for (let opt = 0; opt < OPTIONS.length; opt++) {
-                    // 定義每個選項的檢查框 (稍微內縮避免邊框干擾)
-                    let cellX = startX + opt * optionW;
-                    let cellY = q * rowH;
-                    
-                    // 內縮 20% 
-                    let checkRect = new cv.Rect(
-                        cellX + optionW * 0.2, 
-                        cellY + rowH * 0.2, 
-                        optionW * 0.6, 
-                        rowH * 0.6
-                    );
-
-                    // 計算該區域的非零像素 (白色像素) 數量
-                    let cellRoi = thresh.roi(checkRect);
-                    let count = cv.countNonZero(cellRoi);
-                    cellRoi.delete();
-
-                    // 判斷是否被選取 (簡單的閾值：如果白色像素夠多)
-                    if (count > maxPixels) {
-                        maxPixels = count;
-                        // 設定一個最低門檻，避免雜訊
-                        if (count > (checkRect.width * checkRect.height * 0.2)) {
-                            bestOpt = opt;
-                        }
-                    }
+            // 啟動相機
+            useEffect(() => {
+                if (mode === 'camera') {
+                    startCamera();
                 }
-                results.push(bestOpt === -1 ? "?" : OPTIONS[bestOpt]);
+            }, [mode]);
+
+            const startCamera = async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'environment' } // 優先使用後鏡頭
+                    });
+                    if (videoRef.current) {
+                        videoRef.current.srcObject = stream;
+                    }
+                } catch (err) {
+                    console.error("Camera Error:", err);
+                    alert("無法啟動相機，請確認權限或使用 HTTPS。");
+                }
+            };
+
+            const takePhoto = () => {
+                const video = videoRef.current;
+                const canvas = canvasRef.current;
+                if (video && canvas) {
+                    // 1. 截圖
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // 2. 轉為 Data URL
+                    const imgUrl = canvas.toDataURL('image/png');
+                    setCapturedImage(imgUrl);
+                    
+                    // 3. 停止相機串流 (省電)
+                    const stream = video.srcObject;
+                    if (stream) stream.getTracks().forEach(track => track.stop());
+
+                    // 4. 開始模擬辨識流程
+                    setMode('processing');
+                    runSimulation();
+                }
+            };
+
+            const runSimulation = () => {
+                const steps = [
+                    "正在上傳影像...",
+                    "OpenCV: 灰階化處理中...",
+                    "OpenCV: 尋找定位點 (Fiducial Marks)...",
+                    "校正透視變形 (Perspective Transform)...",
+                    "讀取數學科 JSON 版型...",
+                    "分析填塗區域 (Bubble Detection)...",
+                    "辨識特殊符號 (±, -)...",
+                    "計算成績..."
+                ];
+                
+                let i = 0;
+                setLogs([]);
+                const interval = setInterval(() => {
+                    if (i < steps.length) {
+                        setLogs(prev => [...prev, steps[i]]);
+                        i++;
+                    } else {
+                        clearInterval(interval);
+                        // 模擬辨識結果 (對應我們準備的 Demo Sheet)
+                        const mockResults = {
+                            "A": { detected: ["-", "5"], status: "correct", score: 6 },
+                            "B": { detected: ["1", "0", "?"], status: "wrong", score: 0 }, // 漏畫 ±
+                            "C": { detected: ["2", "8"], status: "wrong", score: 0 }    // 畫錯
+                        };
+                        setResults(mockResults);
+                        setMode('result');
+                    }
+                }, 400); // 每 0.4 秒跑一個步驟
+            };
+
+            const handleCorrection = (qId, idx, val) => {
+                const newRes = {...results};
+                newRes[qId].detected[idx] = val;
+                
+                // 重新計分
+                const config = EXAM_CONFIG.find(q => q.id === qId);
+                const isCorrect = JSON.stringify(newRes[qId].detected) === JSON.stringify(config.correct);
+                newRes[qId].status = isCorrect ? "correct" : "wrong";
+                newRes[qId].score = isCorrect ? config.points : 0;
+                
+                setResults(newRes);
+                if (isCorrect) setEditingId(null);
+            };
+
+            const totalScore = Object.values(results).reduce((acc, curr) => acc + curr.score, 0);
+
+            // --- Render: Camera Mode ---
+            if (mode === 'camera') {
+                return (
+                    <div className="h-screen w-full relative overflow-hidden bg-black">
+                        <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover"></video>
+                        <canvas ref={canvasRef} className="hidden"></canvas>
+                        
+                        {/* 掃描框 UI */}
+                        <div className="camera-overlay">
+                            <div className="corner tl"></div><div className="corner tr"></div>
+                            <div className="corner bl"></div><div className="corner br"></div>
+                            <div className="absolute bottom-4 left-0 right-0 text-center text-sm font-mono text-green-400 opacity-80">
+                                [尋找數學科定位點...]
+                            </div>
+                        </div>
+
+                        {/* 拍照按鈕 */}
+                        <div className="absolute bottom-10 left-0 right-0 flex justify-center z-20">
+                            <button onClick={takePhoto} className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 shadow-xl active:scale-95 transition-transform flex items-center justify-center">
+                                <div className="w-14 h-14 bg-white border-2 border-black rounded-full"></div>
+                            </button>
+                        </div>
+                    </div>
+                );
             }
 
-            // 4. 顯示結果
-            displayResults(results);
+            // --- Render: Processing Mode ---
+            if (mode === 'processing') {
+                return (
+                    <div className="h-screen w-full bg-gray-900 flex flex-col items-center justify-center p-6 processing">
+                        <div className="relative w-full max-w-sm aspect-[3/4] rounded-lg overflow-hidden border-2 border-green-500 mb-6 shadow-2xl">
+                            <img src={capturedImage} className="w-full h-full object-cover opacity-50" />
+                            <div className="scan-beam top-0"></div>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="text-4xl animate-bounce">🤖</div>
+                            </div>
+                        </div>
+                        <div className="w-full max-w-sm space-y-2 font-mono text-xs text-green-400">
+                            {logs.map((log, idx) => (
+                                <div key={idx} className="truncate">> {log}</div>
+                            ))}
+                            <div className="animate-pulse">> 處理中...</div>
+                        </div>
+                    </div>
+                );
+            }
 
-            // 清理記憶體
-            src.delete(); gray.delete(); thresh.delete(); roi.delete();
-        }
+            // --- Render: Result Mode ---
+            return (
+                <div className="min-h-screen w-full bg-gray-50 text-gray-800 pb-20">
+                    {/* Header */}
+                    <div className="bg-white p-4 shadow-sm sticky top-0 z-10 flex justify-between items-center">
+                        <h1 className="font-bold text-lg">辨識結果</h1>
+                        <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                            {totalScore} / 18 分
+                        </div>
+                    </div>
 
-        function displayResults(answers) {
-            let html = '<table border="1" style="width:100%; border-collapse:collapse; text-align:center;">';
-            html += '<tr><th>題號</th><th>偵測答案</th></tr>';
-            answers.forEach((ans, idx) => {
-                html += `<tr><td>${idx + 1}</td><td style="font-weight:bold; color:${ans==='?'?'red':'green'}">${ans}</td></tr>`;
-            });
-            html += '</table>';
-            document.getElementById('results-list').innerHTML = html;
-        }
+                    {/* 縮圖 */}
+                    <div className="p-4 bg-gray-200 flex justify-center">
+                        <img src={capturedImage} className="h-32 rounded border border-gray-400 shadow-inner" />
+                    </div>
+
+                    {/* 詳細列表 */}
+                    <div className="p-4 space-y-4">
+                        {EXAM_CONFIG.map(q => {
+                            const res = results[q.id];
+                            const isCorrect = res.status === 'correct';
+                            const isEditing = editingId === q.id;
+
+                            return (
+                                <div key={q.id} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 ${isCorrect ? 'border-green-500' : 'border-red-500'}`}>
+                                    <div className="flex justify-between mb-2">
+                                        <div className="font-bold text-gray-700">{q.label}</div>
+                                        {isCorrect 
+                                            ? <span className="text-green-600 font-bold flex items-center gap-1 text-sm"><Check className="w-4 h-4"/> +{q.points}</span> 
+                                            : <span className="text-red-500 font-bold flex items-center gap-1 text-sm"><XIcon className="w-4 h-4"/> +0</span>
+                                        }
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs text-gray-400">學生作答</span>
+                                        <div className="flex gap-1">
+                                            {res.detected.map((val, idx) => (
+                                                <div key={idx} 
+                                                    onClick={() => !isCorrect && setEditingId(q.id)}
+                                                    className={`
+                                                        w-8 h-10 flex items-center justify-center border rounded font-mono font-bold
+                                                        ${val === "?" ? "bg-red-50 border-red-300 text-red-500" : "bg-gray-50 border-gray-200"}
+                                                        ${isEditing ? "ring-2 ring-blue-400" : ""}
+                                                    `}
+                                                >
+                                                    {isEditing ? (
+                                                        <select 
+                                                            className="w-full h-full bg-transparent text-center appearance-none"
+                                                            value={val}
+                                                            onChange={(e) => handleCorrection(q.id, idx, e.target.value)}
+                                                        >
+                                                            <option value="?">?</option>
+                                                            {["1","2","3","4","5","6","7","8","9","0","-","±"].map(o => <option key={o} value={o}>{o}</option>)}
+                                                        </select>
+                                                    ) : val}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {!isCorrect && !isEditing && (
+                                            <button onClick={() => setEditingId(q.id)} className="text-blue-500 ml-auto">
+                                                <Edit className="w-5 h-5"/>
+                                            </button>
+                                        )}
+                                        {isEditing && (
+                                            <button onClick={() => setEditingId(null)} className="text-green-600 font-bold text-sm ml-auto">完成</button>
+                                        )}
+                                    </div>
+                                    {!isCorrect && (
+                                        <div className="mt-2 text-xs text-red-400">
+                                            正確答案: {q.correct.join("")} {q.id === 'B' && "(漏畫符號 ±)"}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    {/* 重試按鈕 */}
+                    <div className="fixed bottom-6 left-0 right-0 flex justify-center">
+                        <button onClick={() => setMode('camera')} className="bg-black text-white px-6 py-3 rounded-full shadow-lg font-bold active:scale-95 transition-transform">
+                            再掃描一張
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
